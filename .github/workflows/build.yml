@@ -36,10 +36,15 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             IPHONEOS_DEPLOYMENT_TARGET=14.0
 
-      - name: Fake sign (entitlements para jailbreak / TrollStore)
+      - name: Fake sign (entitlements para jailbreak)
         run: |
           sed 's/$(PRODUCT_BUNDLE_PREFIX:default=com.osy86)/com.osy86/g' PurpleHaze/PurpleHaze.entitlements > PurpleHaze.entitlements
           sed 's/$(PRODUCT_BUNDLE_PREFIX:default=com.osy86)/com.osy86/g' Extension/Iodine.entitlements > Iodine.entitlements
+          # Marcar como "platform binary" para que roothide honre los entitlements
+          # (incluido NetworkExtension) aunque se instale sin TrollStore. Es el
+          # mismo truco que hizo funcionar nuestro tweak.
+          /usr/libexec/PlistBuddy -c "Add :platform-application bool true" PurpleHaze.entitlements || true
+          /usr/libexec/PlistBuddy -c "Add :platform-application bool true" Iodine.entitlements || true
           APP="PurpleHaze.xcarchive/Products/Applications/Purple Haze.app"
           codesign --force --sign - --entitlements "Iodine.entitlements" --timestamp=none "$APP/PlugIns/Iodine.appex"
           codesign --force --sign - --entitlements "PurpleHaze.entitlements" --timestamp=none "$APP"
