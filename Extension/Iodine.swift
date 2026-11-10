@@ -45,37 +45,14 @@ final public class Iodine: NSObject {
     private var isRunning: Bool = false
     private var nameserver = sockaddr_storage()
     
-    private var defaultNameserver: sockaddr_storage? {
-        var state = __res_9_state()
-        var servers = [res_9_sockaddr_union](repeating: res_9_sockaddr_union(), count: Int(NI_MAXSERV))
-        res_9_ninit(&state)
-        defer {
-            res_9_nclose(&state)
-        }
-        let count = res_9_getservers(&state, &servers, NI_MAXSERV)
-        guard count > 0 else {
-            return nil
-        }
-        servers.removeLast(Int(NI_MAXSERV - count))
-        var result = sockaddr_storage()
-        guard var server = servers.first(where: { server in
-            self.ipv6Support || server.sin6.sin6_family != AF_INET6
-        }) else {
-            return nil
-        }
-        withUnsafePointer(to: &server) { addr in
-            let ptr = UnsafeRawPointer(addr).assumingMemoryBound(to: sockaddr_storage.self)
-            result = ptr.pointee
-        }
-        return result
-    }
-    
+    // El resolver DNS por defecto cuando el usuario no configura uno.
+    // Antes se autodetectaba el DNS del sistema con res_9_* (retirada del SDK
+    // de iOS); ahora usamos un resolver publico, que es lo que funciona para un
+    // dominio delegado. Se puede sobreescribir en los ajustes (nameserverHost).
+    private static let fallbackNameserverHost = "8.8.8.8"
+
     public var tunDnsServer: String? {
-        guard var defaultNameserver = defaultNameserver else {
-            return nil
-        }
-        let dnsHostname = String(cString: format_addr(&defaultNameserver, Int32(defaultNameserver.ss_len)))
-        return dnsHostname
+        return nameserverHost ?? Iodine.fallbackNameserverHost
     }
     
     public convenience init(options: [String : Any]? = nil) {
@@ -180,11 +157,14 @@ final public class Iodine: NSObject {
             }
             client_set_nameserver(&nameserver, len)
         } else {
-            guard let defaultNameserver = defaultNameserver else {
+            // Sin nameserver configurado: resolver el publico por defecto.
+            let hostPtr = Iodine.fallbackNameserverHost.unsafeAllocate()!
+            let len = get_addr(hostPtr, DNS_PORT, family, 0, &nameserver)
+            hostPtr.deallocate()
+            guard len > 0 else {
                 throw IodineError.defaultDnsNotFound
             }
-            nameserver = defaultNameserver
-            client_set_nameserver(&nameserver, Int32(nameserver.ss_len))
+            client_set_nameserver(&nameserver, len)
         }
         
         guard let topdomain = topDomain else {
